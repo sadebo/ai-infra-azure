@@ -61,7 +61,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://istio-release.storage.googleapis.com/charts
+    repoURL: https://istio-release.storage.googleapis.com/charts # Istio Helm Repo URL
     chart: gateway
     targetRevision: 1.22.0
     helm:
@@ -70,9 +70,15 @@ spec:
         service:
           type: LoadBalancer
         image:
-          repository: istio/proxyv2
-          tag: 1.22.0
-          pullPolicy: IfNotPresent
+          tag: 1.22.0 # Generally recommended to only set the tag
+        resources:
+          requests:
+            cpu: 100m
+            memory: 256Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+
   destination:
     server: https://kubernetes.default.svc
     namespace: istio-system
