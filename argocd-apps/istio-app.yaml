@@ -1,4 +1,4 @@
-# 1) Base CRDs (required) — make 'default' the default revision for webhooks/validation
+# 1) Install Istio base CRDs
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -10,18 +10,17 @@ spec:
     repoURL: https://istio-release.storage.googleapis.com/charts
     chart: base
     targetRevision: 1.22.0
-    helm:
-      values: |
-        defaultRevision: default
   destination:
     server: https://kubernetes.default.svc
     namespace: istio-system
   syncPolicy:
     syncOptions:
     - CreateNamespace=true
-    automated: { prune: true, selfHeal: true }
+    automated:
+      prune: true
+      selfHeal: true
 ---
-# 2) Control plane (istiod) — installs the mutating webhook for injection
+# 2) Install Istiod control plane
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -36,35 +35,24 @@ spec:
     helm:
       values: |
         revision: default
+        resources:
+          requests:
+            cpu: 250m      # reduced from 500m
+            memory: 512Mi  # reduced from 2Gi
+          limits:
+            cpu: 500m
+            memory: 1Gi
   destination:
     server: https://kubernetes.default.svc
     namespace: istio-system
   syncPolicy:
     syncOptions:
     - CreateNamespace=true
-    automated: { prune: true, selfHeal: true }
+    automated:
+      prune: true
+      selfHeal: true
 ---
-# 3) Label istio-system with istio.io/rev=default (ensures gateway pods get injected)
-apiVersion: argoproj.io/v1alpha1
-kind: Application
-metadata:
-  name: istio-namespace-label
-  namespace: argocd
-spec:
-  project: default
-  source:
-    repoURL: https://github.com/sadebo/ai-infra-azure.git
-    targetRevision: main
-    path: k8s/istio-namespace-label
-  destination:
-    server: https://kubernetes.default.svc
-    namespace: istio-system
-  syncPolicy:
-    syncOptions:
-    - CreateNamespace=true
-    automated: { prune: true, selfHeal: true }
----
-# 4) Ingress Gateway (LB service). Leave image as 'auto' — istiod will rewrite it.
+# 3) Install Istio Ingress Gateway (with explicit image override)
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -77,16 +65,20 @@ spec:
     chart: gateway
     targetRevision: 1.22.0
     helm:
+      releaseName: istio-ingressgateway
       values: |
         service:
           type: LoadBalancer
-        # Optional but recommended: label the deployment to pin it to the 'default' control-plane revision
-        labels:
-          istio.io/rev: default
+        image:
+          repository: istio/proxyv2
+          tag: 1.22.0
+          pullPolicy: IfNotPresent
   destination:
     server: https://kubernetes.default.svc
     namespace: istio-system
   syncPolicy:
     syncOptions:
     - CreateNamespace=true
-    automated: { prune: true, selfHeal: true }
+    automated:
+      prune: true
+      selfHeal: true
