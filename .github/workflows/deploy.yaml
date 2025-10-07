@@ -96,7 +96,7 @@ jobs:
         docker build -t ${{ secrets.ACR_NAME }}.azurecr.io/prefect:v1 ./docker/prefect
         docker push ${{ secrets.ACR_NAME }}.azurecr.io/prefect:v1
 
-  deploy:
+    deploy:
     name: Deploy via ArgoCD (App of Apps)
     runs-on: ubuntu-latest
     needs: [ build-fastapi, build-mlflow, build-prefect ]
@@ -123,11 +123,6 @@ jobs:
         kubectl create namespace argocd --dry-run=client -o yaml | kubectl apply -f -
         kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
 
-    # --- Wait for ArgoCD CRDs
-    - name: Wait for ArgoCD CRDs
-      run: |
-        kubectl wait --for=condition=Established crd/applications.argoproj.io --timeout=180s
-        kubectl wait --for=condition=Established crd/appprojects.argoproj.io --timeout=180s
 
     - name: Apply ArgoCD Bootstrap App
       run: |
@@ -137,6 +132,11 @@ jobs:
       run: |
         curl -sSL -o /usr/local/bin/argocd https://github.com/argoproj/argo-cd/releases/download/v2.11.0/argocd-linux-amd64
         chmod +x /usr/local/bin/argocd
+
+    - name: Wait for ArgoCD CRDs
+      run: |
+        kubectl wait --for=condition=Established crd/applications.argoproj.io --timeout=180s
+        kubectl wait --for=condition=Established crd/appprojects.argoproj.io --timeout=180s
 
     - name: Retrieve ArgoCD Admin Password
       id: argopass
@@ -158,6 +158,28 @@ jobs:
           --password $ARGOCD_PASS
         argocd app sync ai-infra-bootstrap --timeout 600
         argocd app wait ai-infra-bootstrap --timeout 600
+
+    - name: Wait for Istio Namespace
+      run: |
+        for i in {1..60}; do
+          if kubectl get ns istio-system >/dev/null 2>&1; then
+            echo "Istio namespace found."
+            break
+          fi
+          echo "Waiting for istio-system namespace... ($i/60)"
+          sleep 10
+        done
+
+    - name: Wait for Istio Ingress Service
+      run: |
+        for i in {1..60}; do
+          if kubectl get svc istio-ingressgateway -n istio-system >/dev/null 2>&1; then
+            echo "Istio ingress service found."
+            break
+          fi
+          echo "Waiting for Istio ingress service... ($i/60)"
+          sleep 10
+        done
 
   dns-and-certs:
     name: Setup Cloudflare DNS + cert-manager secret
@@ -182,10 +204,14 @@ jobs:
     - name: Wait for Istio Ingress External IP
       id: ingress
       run: |
-        for i in {1..60}; do
+        for i in {1..120}; do
           IP=$(kubectl get svc istio-ingressgateway -n istio-system -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || true)
-          if [[ -n "$IP" ]]; then echo "INGRESS_IP=$IP" >> $GITHUB_ENV; break; fi
-          echo "Waiting for Istio ingress IP... ($i/60)"
+          if [[ -n "$IP" ]]; then 
+            echo "INGRESS_IP=$IP" >> $GITHUB_ENV
+            echo "Istio ingress external IP: $IP"
+            break
+          fi
+          echo "Waiting for Istio ingress external IP... ($i/120)"
           sleep 10
         done
 

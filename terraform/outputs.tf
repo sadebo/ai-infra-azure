@@ -11,3 +11,8 @@ output "acr_name" {
   description = "Azure Container Registry name"
   value       = azurerm_container_registry.acr.name
 }
+
+output "azurerm_resource_group" {
+    description = "Azure resource group"
+    value     = azurerm_resource_group.rg.name
+}
