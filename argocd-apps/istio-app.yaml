@@ -1,18 +1,48 @@
+# ArgoCD Applications live in the "argocd" namespace,
+# but Istio will be installed into "istio-system".
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: istio-config
+  name: istio-base
   namespace: argocd
 spec:
   project: default
   source:
-    repoURL: 'https://github.com/sadebo/ai-infra-azure.git'
-    path: helm-charts/istio
-    targetRevision: main
+    repoURL: https://istio-release.storage.googleapis.com/charts
+    targetRevision: 1.22.0 # pick latest stable release
+    chart: istio-base
   destination:
     server: https://kubernetes.default.svc
     namespace: istio-system
   syncPolicy:
+    syncOptions:
+    - CreateNamespace=true # 👈 auto-create istio-system
+    automated:
+      prune: true
+      selfHeal: true
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: istio-ingressgateway
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://istio-release.storage.googleapis.com/charts
+    targetRevision: 1.22.0
+    chart: gateway
+    helm:
+      releaseName: istio-ingressgateway
+      values: |
+        service:
+          type: LoadBalancer
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: istio-system
+  syncPolicy:
+    syncOptions:
+    - CreateNamespace=true # 👈 auto-create istio-system
     automated:
       prune: true
       selfHeal: true

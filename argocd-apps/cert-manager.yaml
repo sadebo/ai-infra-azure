@@ -1,14 +1,19 @@
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: cert-manager-config
+  name: cert-manager-app
   namespace: argocd
 spec:
   project: default
   source:
-    repoURL: 'https://github.com/sadebo/ai-infra-azure.git'
-    path: helm-charts/cert-manager
-    targetRevision: main
+    repoURL: 'https://github.com/jetstack/cert-manager.git'
+    targetRevision: v1.15.1 # choose latest stable
+    path: deploy/charts/cert-manager
+    helm:
+      releaseName: cert-manager
+      parameters:
+      - name: installCRDs
+        value: "true"
   destination:
     server: https://kubernetes.default.svc
     namespace: cert-manager

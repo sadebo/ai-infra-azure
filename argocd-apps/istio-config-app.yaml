@@ -1,0 +1,22 @@
+# This ArgoCD app deploys your Istio Gateway + VirtualService configs.
+# ArgoCD Application object lives in "argocd", resources go into "istio-system".
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: istio-config
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: 'https://github.com/sadebo/ai-infra-azure.git'
+    targetRevision: main
+    path: helm-charts/istio-config
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: istio-system
+  syncPolicy:
+    syncOptions:
+    - CreateNamespace=true # 👈 auto-create istio-system
+    automated:
+      prune: true
+      selfHeal: true
