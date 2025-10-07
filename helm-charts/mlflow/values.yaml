@@ -1,0 +1,3 @@
+image:
+  repository: aiinfraacr.azurecr.io/mlflow
+  tag: v1

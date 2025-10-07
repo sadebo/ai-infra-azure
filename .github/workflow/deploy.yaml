@@ -1,0 +1,206 @@
+name: Deploy AI Infra to AKS
+
+on:
+  push:
+    branches:
+    - main
+  workflow_dispatch:
+
+
+jobs:
+  infra:
+    name: Setup Azure Infrastructure with Terraform
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Azure Login
+      uses: azure/login@v1
+      with:
+        creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v2
+      with:
+        terraform_version: 1.6.6
+
+    - name: Terraform Init
+      working-directory: ./terraform
+      run: terraform init -input=false
+
+    - name: Terraform Apply
+      working-directory: ./terraform
+      run: terraform apply -auto-approve -input=false
+
+    - name: Get AKS Credentials
+      run: |
+        az aks get-credentials \
+          --resource-group ai-infra-rg \
+          --name ai-infra-aks \
+          --overwrite-existing
+
+  build-fastapi:
+    name: Build & Push FastAPI Image
+    runs-on: ubuntu-latest
+    needs: infra
+    steps:
+    - uses: actions/checkout@v3
+    - name: Azure Login
+      uses: azure/login@v1
+      with:
+        creds: ${{ secrets.AZURE_CREDENTIALS }}
+    - name: Login to ACR
+      run: az acr login --name ${{ secrets.ACR_NAME }}
+    - name: Build & Push FastAPI
+      run: |
+        docker build -t ${{ secrets.ACR_NAME }}.azurecr.io/fastapi:v1 ./docker/fastapi
+        docker push ${{ secrets.ACR_NAME }}.azurecr.io/fastapi:v1
+
+  build-mlflow:
+    name: Build & Push MLflow Image
+    runs-on: ubuntu-latest
+    needs: infra
+    steps:
+    - uses: actions/checkout@v3
+    - name: Azure Login
+      uses: azure/login@v1
+      with:
+        creds: ${{ secrets.AZURE_CREDENTIALS }}
+    - name: Login to ACR
+      run: az acr login --name ${{ secrets.ACR_NAME }}
+    - name: Build & Push MLflow
+      run: |
+        docker build -t ${{ secrets.ACR_NAME }}.azurecr.io/mlflow:v1 ./docker/mlflow
+        docker push ${{ secrets.ACR_NAME }}.azurecr.io/mlflow:v1
+
+  build-prefect:
+    name: Build & Push Prefect Image
+    runs-on: ubuntu-latest
+    needs: infra
+    steps:
+    - uses: actions/checkout@v3
+    - name: Azure Login
+      uses: azure/login@v1
+      with:
+        creds: ${{ secrets.AZURE_CREDENTIALS }}
+    - name: Login to ACR
+      run: az acr login --name ${{ secrets.ACR_NAME }}
+    - name: Build & Push Prefect
+      run: |
+        docker build -t ${{ secrets.ACR_NAME }}.azurecr.io/prefect:v1 ./docker/prefect
+        docker push ${{ secrets.ACR_NAME }}.azurecr.io/prefect:v1
+
+  deploy:
+    name: Deploy via ArgoCD (App of Apps)
+    runs-on: ubuntu-latest
+    needs: [ build-fastapi, build-mlflow, build-prefect ]
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Azure Login
+      uses: azure/login@v1
+      with:
+        creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+    - name: Setup kubectl
+      uses: azure/setup-kubectl@v4
+
+    - name: Get AKS Credentials
+      run: |
+        az aks get-credentials \
+          --resource-group ai-infra-rg \
+          --name ai-infra-aks \
+          --overwrite-existing
+
+    - name: Install ArgoCD (if not already installed)
+      run: |
+        kubectl create namespace argocd --dry-run=client -o yaml | kubectl apply -f -
+        kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+
+    # --- Wait for ArgoCD CRDs
+    - name: Wait for ArgoCD CRDs
+      run: |
+        kubectl wait --for=condition=Established crd/applications.argoproj.io --timeout=180s
+        kubectl wait --for=condition=Established crd/appprojects.argoproj.io --timeout=180s
+
+    - name: Apply ArgoCD Bootstrap App
+      run: |
+        kubectl apply -n argocd -f argocd-apps/bootstrap-app.yaml
+
+    - name: Install ArgoCD CLI
+      run: |
+        curl -sSL -o /usr/local/bin/argocd https://github.com/argoproj/argo-cd/releases/download/v2.11.0/argocd-linux-amd64
+        chmod +x /usr/local/bin/argocd
+
+    - name: Retrieve ArgoCD Admin Password
+      id: argopass
+      run: |
+        PASS=$(kubectl -n argocd get secret argocd-initial-admin-secret \
+          -o jsonpath="{.data.password}" | base64 -d)
+        echo "ARGOCD_PASS=$PASS" >> $GITHUB_ENV
+
+    - name: Port-forward ArgoCD API
+      run: |
+        nohup kubectl port-forward svc/argocd-server -n argocd 8080:443 >/dev/null 2>&1 &
+        sleep 10
+
+    - name: Sync ArgoCD Applications
+      run: |
+        argocd login localhost:8080 \
+          --insecure \
+          --username admin \
+          --password $ARGOCD_PASS
+        argocd app sync ai-infra-bootstrap --timeout 600
+        argocd app wait ai-infra-bootstrap --timeout 600
+
+  dns-and-certs:
+    name: Setup Cloudflare DNS + cert-manager secret
+    runs-on: ubuntu-latest
+    needs: deploy
+    steps:
+    - name: Azure Login
+      uses: azure/login@v1
+      with:
+        creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+    - name: Setup kubectl
+      uses: azure/setup-kubectl@v4
+
+    - name: Get AKS Credentials
+      run: |
+        az aks get-credentials \
+          --resource-group ai-infra-rg \
+          --name ai-infra-aks \
+          --overwrite-existing
+
+    - name: Wait for Istio Ingress External IP
+      id: ingress
+      run: |
+        for i in {1..60}; do
+          IP=$(kubectl get svc istio-ingressgateway -n istio-system -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || true)
+          if [[ -n "$IP" ]]; then echo "INGRESS_IP=$IP" >> $GITHUB_ENV; break; fi
+          echo "Waiting for Istio ingress IP... ($i/60)"
+          sleep 10
+        done
+
+    - name: Create/Update Cloudflare DNS Records
+      run: |
+        for app in fastapi mlflow prefect argocd; do
+          curl -X POST "https://api.cloudflare.com/client/v4/zones/${{ secrets.CLOUDFLARE_ZONE_ID }}/dns_records" \
+            -H "Authorization: Bearer ${{ secrets.CLOUDFLARE_API_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            --data '{
+              "type":"A",
+              "name":"'"$app"'.parallelservicesllc.com",
+              "content":"'"${INGRESS_IP}"'",
+              "ttl":120,
+              "proxied":true
+            }'
+        done
+
+    - name: Inject Cloudflare API Token Secret for cert-manager
+      run: |
+        kubectl create namespace cert-manager --dry-run=client -o yaml | kubectl apply -f -
+        kubectl create secret generic cloudflare-api-token-secret \
+          --from-literal=api-token=${{ secrets.CLOUDFLARE_API_TOKEN }} \
+          -n cert-manager --dry-run=client -o yaml | kubectl apply -f -

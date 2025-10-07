@@ -1,0 +1,26 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fastapi-inference
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: fastapi-inference
+  template:
+    metadata:
+      labels:
+        app: fastapi-inference
+    spec:
+      containers:
+      - name: fastapi
+        image: {{ .Values.image.repository }}:{{ .Values.image.tag }}
+        ports:
+        - containerPort: 8000
+        resources:
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+          requests:
+            memory: "256Mi"
+            cpu: "250m"

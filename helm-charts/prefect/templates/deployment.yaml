@@ -1,0 +1,20 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prefect
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: prefect
+  template:
+    metadata:
+      labels:
+        app: prefect
+    spec:
+      containers:
+      - name: prefect
+        image: {{ .Values.image.repository }}:{{ .Values.image.tag }}
+        command: ["prefect", "orion", "start", "--host", "0.0.0.0", "--port", "4200"]
+        ports:
+        - containerPort: 4200

@@ -1,0 +1,3 @@
+image:
+  repository: aiinfraacr.azurecr.io/fastapi-inference
+  tag: v1

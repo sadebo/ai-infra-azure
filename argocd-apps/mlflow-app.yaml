@@ -1,0 +1,23 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: mlflow-app
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: 'https://github.com/sadebo/ai-infra-azure.git'
+    path: helm-charts/mlflow
+    targetRevision: main
+    helm:
+      values: |
+        image:
+          repository: aiinfraacr.azurecr.io/mlflow
+          tag: v1
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: default
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true

@@ -1,0 +1,38 @@
+apiVersion: networking.istio.io/v1alpha3
+kind: Gateway
+metadata:
+  name: ai-infra-gateway
+  namespace: istio-system
+spec:
+  selector:
+    istio: ingressgateway
+  servers:
+  - port:
+      number: 80
+      name: http
+      protocol: HTTP
+    hosts:
+    - "fastapi.parallelservicesllc.com"
+    - "mlflow.parallelservicesllc.com"
+    - "prefect.parallelservicesllc.com"
+    - "*.fastapi.parallelservicesllc.com"
+    - "*.mlflow.parallelservicesllc.com"
+    - "*.prefect.parallelservicesllc.com"
+    - "argocd.parallelservicesllc.com"
+    tls:
+      httpsRedirect: true
+  - port:
+      number: 443
+      name: https
+      protocol: HTTPS
+    hosts:
+    - "fastapi.parallelservicesllc.com"
+    - "mlflow.parallelservicesllc.com"
+    - "prefect.parallelservicesllc.com"
+    - "*.fastapi.parallelservicesllc.com"
+    - "*.mlflow.parallelservicesllc.com"
+    - "*.prefect.parallelservicesllc.com"
+    - "argocd.parallelservicesllc.com"
+    tls:
+      mode: SIMPLE
+      credentialName: ai-infra-cert # certificate secret
