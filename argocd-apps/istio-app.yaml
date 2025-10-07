@@ -14,10 +14,10 @@ spec:
       values: |
         service:
           type: LoadBalancer
-        global:
-          proxy:
-            image: proxyv2   # 👈 use Istio's proxyv2 image
-            tag: 1.22.0
+        image:
+          repository: istio/proxyv2
+          tag: 1.22.0
+          pullPolicy: IfNotPresent
   destination:
     server: https://kubernetes.default.svc
     namespace: istio-system
