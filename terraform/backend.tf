@@ -1,8 +1,8 @@
 terraform {
   required_version = ">= 1.6.0"
   backend "azurerm" {
-    resource_group_name  = "ai-infra-rg"
-    storage_account_name = "aiinfrastorage12345"   # must be globally unique
+    resource_group_name  = "tfstate-rg"
+    storage_account_name = "tfstflask1234"   # must be globally unique
     container_name       = "tfstate"
     key                  = "terraform.tfstate"
   }
