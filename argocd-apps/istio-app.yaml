@@ -1,26 +1,3 @@
-# ArgoCD Applications live in the "argocd" namespace,
-# but Istio will be installed into "istio-system".
-apiVersion: argoproj.io/v1alpha1
-kind: Application
-metadata:
-  name: istio-base
-  namespace: argocd
-spec:
-  project: default
-  source:
-    repoURL: https://istio-release.storage.googleapis.com/charts
-    targetRevision: 1.22.0 # pick latest stable release
-    chart: istio-base
-  destination:
-    server: https://kubernetes.default.svc
-    namespace: istio-system
-  syncPolicy:
-    syncOptions:
-    - CreateNamespace=true # 👈 auto-create istio-system
-    automated:
-      prune: true
-      selfHeal: true
----
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -37,12 +14,16 @@ spec:
       values: |
         service:
           type: LoadBalancer
+        global:
+          proxy:
+            image: proxyv2   # 👈 use Istio's proxyv2 image
+            tag: 1.22.0
   destination:
     server: https://kubernetes.default.svc
     namespace: istio-system
   syncPolicy:
     syncOptions:
-    - CreateNamespace=true # 👈 auto-create istio-system
+    - CreateNamespace=true
     automated:
       prune: true
       selfHeal: true
