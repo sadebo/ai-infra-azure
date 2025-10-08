@@ -1,9 +1,11 @@
+# 1. Istio Base (CRDs) - MUST BE INSTALLED FIRST
+# This deploys all Custom Resource Definitions required by Istio components.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
   name: istio-base
   namespace: argocd
-  # Use annotations for Sync Waves to ensure Base is deployed before Istiod
+  # Sync Wave 1: Deploys CRDs first.
   annotations:
     argocd.argoproj.io/sync-wave: "1"
 spec:
@@ -12,9 +14,9 @@ spec:
     repoURL: https://istio-release.storage.googleapis.com/charts
     chart: base
     targetRevision: 1.22.0
-    # The base chart requires the defaultRevision to be set in recent Istio versions
     helm:
       values: |
+        # Required for resource validation in newer Istio versions
         defaultRevision: default
   destination:
     server: https://kubernetes.default.svc
@@ -26,13 +28,14 @@ spec:
       prune: true
       selfHeal: true
 ---
-# 2. Istiod (Control Plane)
+# 2. Istiod (Control Plane) - MUST BE INSTALLED SECOND
+# This deploys the Istio control plane component.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
   name: istiod
   namespace: argocd
-  # Deploy Istiod after Base CRDs
+  # Sync Wave 2: Deploys the Control Plane after CRDs are ready.
   annotations:
     argocd.argoproj.io/sync-wave: "2"
 spec:
@@ -44,7 +47,6 @@ spec:
     helm:
       values: |
         revision: default
-        # Istiod resources are usually top-level
         resources:
           requests:
             cpu: 250m
@@ -60,13 +62,14 @@ spec:
       prune: true
       selfHeal: true
 ---
-# 3. Istio Ingress Gateway (Corrected Values)
+# 3. Istio Ingress Gateway - MUST BE INSTALLED LAST
+# This deploys the ingress gateway to expose the service mesh externally.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
   name: istio-ingressgateway
   namespace: argocd
-  # Deploy Gateway after Istiod is running
+  # Sync Wave 3: Deploys the Gateway after Istiod is running.
   annotations:
     argocd.argoproj.io/sync-wave: "3"
 spec:
@@ -77,10 +80,7 @@ spec:
     targetRevision: 1.22.0
     helm:
       releaseName: istio-ingressgateway
-      # Using standard top-level keys for the gateway chart.
-      # This is the most reliable way to set these values.
-      values: |+
-        # Resources for the gateway's Deployment/Pod
+      values: |
         resources:
           requests:
             cpu: 100m
@@ -89,14 +89,8 @@ spec:
             cpu: 500m
             memory: 512Mi
 
-        # Service configuration
         service:
-          type: LoadBalancer
-
-        # Explicitly setting the tag is generally safe.
-        image:
-          tag: 1.22.0
-          
+          type: LoadBalancer   
   destination:
     server: https://kubernetes.default.svc
     namespace: istio-system
