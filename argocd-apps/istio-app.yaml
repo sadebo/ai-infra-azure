@@ -1,13 +1,18 @@
-# 1. Istio Base (CRDs) - MUST BE INSTALLED FIRST
-# This deploys all Custom Resource Definitions required by Istio components.
+# Istio Core Components Deployment Manifest (3 in 1 File)
+#
+# This file contains 3 Argo CD Applications:
+# 1. istio-base (CRDs) - Sync Wave 1
+# 2. istiod (Control Plane) - Sync Wave 2
+# 3. istio-ingressgateway (Data Plane) - Sync Wave 3
+
+# --- 1. Istio Base (CRDs) ---
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
   name: istio-base
   namespace: argocd
-  # Sync Wave 1: Deploys CRDs first.
   annotations:
-    argocd.argoproj.io/sync-wave: "1"
+    argocd.argoproj.io/sync-wave: "1" # Deploy CRDs first
 spec:
   project: default
   source:
@@ -16,7 +21,6 @@ spec:
     targetRevision: 1.22.0
     helm:
       values: |
-        # Required for resource validation in newer Istio versions
         defaultRevision: default
   destination:
     server: https://kubernetes.default.svc
@@ -28,16 +32,14 @@ spec:
       prune: true
       selfHeal: true
 ---
-# 2. Istiod (Control Plane) - MUST BE INSTALLED SECOND
-# This deploys the Istio control plane component.
+# --- 2. Istiod (Control Plane) ---
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
   name: istiod
   namespace: argocd
-  # Sync Wave 2: Deploys the Control Plane after CRDs are ready.
   annotations:
-    argocd.argoproj.io/sync-wave: "2"
+    argocd.argoproj.io/sync-wave: "2" # Deploy Control Plane second
 spec:
   project: default
   source:
@@ -47,6 +49,10 @@ spec:
     helm:
       values: |
         revision: default
+        # Explicitly setting the hub fixes ImagePullBackOff errors
+        global:
+          hub: gcr.io/istio-release
+          tag: 1.22.0
         resources:
           requests:
             cpu: 250m
@@ -62,16 +68,14 @@ spec:
       prune: true
       selfHeal: true
 ---
-# 3. Istio Ingress Gateway - MUST BE INSTALLED LAST
-# This deploys the ingress gateway to expose the service mesh externally.
+# --- 3. Istio Ingress Gateway ---
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
   name: istio-ingressgateway
   namespace: argocd
-  # Sync Wave 3: Deploys the Gateway after Istiod is running.
   annotations:
-    argocd.argoproj.io/sync-wave: "3"
+    argocd.argoproj.io/sync-wave: "3" # Deploy Gateway last
 spec:
   project: default
   source:
@@ -81,6 +85,11 @@ spec:
     helm:
       releaseName: istio-ingressgateway
       values: |
+        # Explicitly setting the global hub to match istiod
+        global:
+          hub: gcr.io/istio-release
+          tag: 1.22.0
+
         resources:
           requests:
             cpu: 100m
@@ -90,7 +99,8 @@ spec:
             memory: 512Mi
 
         service:
-          type: LoadBalancer   
+          type: LoadBalancer # Use LoadBalancer for external exposure
+
   destination:
     server: https://kubernetes.default.svc
     namespace: istio-system
